@@ -34,6 +34,7 @@ This repo now includes a **minimum working execution worker** that pulls queued 
 1. Apply schema in Supabase SQL editor:
    - `sql/founder_os_schema.sql`
    - `sql/migrations/20260427_execution_worker.sql`
+   - `sql/migrations/20260427_execution_worker_retries.sql` (safe to run on existing installs)
 2. Install Python dependency:
    ```bash
    pip install psycopg[binary]
@@ -99,3 +100,8 @@ The second command requires `SUPABASE_DB_URL` and a reachable database.
 3. Re-run the status queries from `worker/smoke_test.sql` and confirm:
    - `build_packets.status` moved from `queued` to `completed` or `failed`
    - one `execution_runs` row exists for that packet
+
+### Retry behavior
+- Each packet tracks `attempts` and `max_attempts` (`max_attempts` defaults to `3`).
+- On failure before max attempts, packet is re-queued (`status = queued`) for another try.
+- Once max attempts is reached, packet is marked `failed` and task is marked `Blocked`.

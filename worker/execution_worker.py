@@ -181,6 +181,7 @@ def claim_packet(conn: psycopg.Connection[Any], packet_id: UUID) -> None:
             """
             update build_packets
                set status = 'running',
+                   attempts = coalesce(attempts, 0) + 1,
                    started_at = %s,
                    last_error = null
              where id = %s
@@ -310,6 +311,27 @@ def finalize_failure(
         )
 
 
+def requeue_packet(conn: psycopg.Connection[Any], packet_id: UUID, err: str) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            """
+            update build_packets
+               set status = 'queued',
+                   started_at = null,
+                   completed_at = null,
+                   last_error = %s
+             where id = %s
+            """,
+            (err[:4000], packet_id),
+        )
+
+
+def should_retry(packet: dict[str, Any]) -> bool:
+    attempts = int(packet.get("attempts") or 0) + 1
+    max_attempts = int(packet.get("max_attempts") or 3)
+    return attempts < max_attempts
+
+
 def run_validation_commands(commands: list[str], cwd: str, timeout_seconds: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for cmd in commands:
@@ -369,6 +391,30 @@ def process_one_packet(config: WorkerConfig) -> bool:
                 update_task_status(conn, packet.get("task_id"), "Review")
             else:
                 reason = "Codex execution failed" if codex_code != 0 else "Validation commands failed"
+                if should_retry(packet):
+                    finalize_failure(
+                        conn,
+                        packet["id"],
+                        run_id,
+                        err=f"Attempt failed (will retry): {reason}",
+                        codex_out=codex_out,
+                        codex_err=codex_err,
+                        codex_code=codex_code,
+                        validation_results=validation_results,
+                    )
+                    requeue_packet(conn, packet["id"], err=reason)
+                else:
+                    finalize_failure(
+                        conn,
+                        packet["id"],
+                        run_id,
+                        err=reason,
+                        codex_out=codex_out,
+                        codex_err=codex_err,
+                        codex_code=codex_code,
+                        validation_results=validation_results,
+                    )
+                    update_task_status(conn, packet.get("task_id"), "Blocked")
                 finalize_failure(
                     conn,
                     packet["id"],
@@ -385,6 +431,12 @@ def process_one_packet(config: WorkerConfig) -> bool:
             return True
         except Exception as exc:  # noqa: BLE001
             if run_id:
+                if should_retry(packet):
+                    finalize_failure(conn, packet["id"], run_id, err=f"Attempt failed (will retry): {exc}")
+                    requeue_packet(conn, packet["id"], err=f"Unhandled worker error: {exc}")
+                else:
+                    finalize_failure(conn, packet["id"], run_id, err=f"Unhandled worker error: {exc}")
+                    update_task_status(conn, packet.get("task_id"), "Blocked")
                 finalize_failure(conn, packet["id"], run_id, err=f"Unhandled worker error: {exc}")
                 update_task_status(conn, packet.get("task_id"), "Blocked")
                 conn.commit()

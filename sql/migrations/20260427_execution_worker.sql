@@ -9,6 +9,8 @@ create table if not exists build_packets (
   target_repo text not null,
   base_branch text not null default 'main',
   status text not null default 'queued', -- queued | running | completed | failed
+  attempts int not null default 0,
+  max_attempts int not null default 3,
   queued_at timestamptz not null default now(),
   started_at timestamptz,
   completed_at timestamptz,

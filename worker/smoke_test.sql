@@ -14,6 +14,7 @@ insert into build_packets (
   packet_body,
   target_repo,
   base_branch,
+  max_attempts,
   validation_commands
 ) values (
   '<project_uuid>',
@@ -22,6 +23,7 @@ insert into build_packets (
   'Create or update a small README note so we can validate execution flow.',
   '<repo-folder-under-REPO_ROOT>',
   'main',
+  2,
   '["git status --short"]'::jsonb
 )
 returning id, status, queued_at;
