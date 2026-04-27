@@ -63,6 +63,11 @@ python worker/execution_worker.py
 ["npm test", "npm run lint"]
 ```
 
+Contract checks performed by worker before execution:
+- Required fields: `id`, `project_id`, `packet_title`, `packet_body`, `target_repo`, `base_branch`
+- `validation_commands` must be a JSON array of strings
+- `target_repo` must resolve inside `REPO_ROOT` and exist on disk
+
 ### Status behavior
 - On claim:
   - `build_packets.status = running`

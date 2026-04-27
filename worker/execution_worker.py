@@ -21,6 +21,7 @@ import tempfile
 import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from uuid import UUID
 
@@ -34,6 +35,10 @@ class WorkerConfig:
     poll_seconds: int = 10
     codex_exec_command: str = "codex run --prompt-file {prompt_file} --repo {repo_path} --branch {branch}"
     repo_root: str = "/workspace"
+
+
+class PacketValidationError(ValueError):
+    """Raised when a queued build packet does not meet the worker contract."""
 
 
 def utc_now() -> datetime:
@@ -105,6 +110,39 @@ def run_codex(codex_template: str, prompt: str, repo_path: str, branch: str) -> 
         return run_command(command, cwd=repo_path)
     finally:
         os.unlink(prompt_file)
+
+
+def validate_packet(packet: dict[str, Any]) -> None:
+    required = ["id", "project_id", "packet_title", "packet_body", "target_repo", "base_branch"]
+    missing = [key for key in required if not packet.get(key)]
+    if missing:
+        raise PacketValidationError(f"Missing required packet fields: {', '.join(missing)}")
+
+
+def parse_validation_commands(raw_commands: Any) -> list[str]:
+    if raw_commands is None:
+        return []
+    commands = raw_commands
+    if isinstance(raw_commands, str):
+        try:
+            commands = json.loads(raw_commands)
+        except json.JSONDecodeError as exc:
+            raise PacketValidationError(f"validation_commands is not valid JSON: {exc}") from exc
+    if not isinstance(commands, list) or any(not isinstance(item, str) for item in commands):
+        raise PacketValidationError("validation_commands must be a JSON array of command strings")
+    return commands
+
+
+def resolve_repo_path(repo_root: str, target_repo: str) -> str:
+    candidate = (Path(repo_root) / target_repo).resolve()
+    root = Path(repo_root).resolve()
+    try:
+        candidate.relative_to(root)
+    except ValueError as exc:
+        raise PacketValidationError("target_repo must stay within REPO_ROOT") from exc
+    if not candidate.exists():
+        raise PacketValidationError(f"target_repo path does not exist: {candidate}")
+    return str(candidate)
 
 
 def fetch_one_queued_packet(conn: psycopg.Connection[Any]) -> dict[str, Any] | None:
@@ -287,18 +325,17 @@ def process_one_packet(config: WorkerConfig) -> bool:
 
         run_id: UUID | None = None
         try:
+            validate_packet(packet)
             project, task = get_project_and_task(conn, packet)
             branch = build_branch_name(task, packet)
             prompt = build_codex_prompt(packet, project, task, branch)
             run_id = create_execution_run(conn, packet, branch, prompt)
             conn.commit()
 
-            repo_path = os.path.join(config.repo_root, packet["target_repo"])
+            repo_path = resolve_repo_path(config.repo_root, packet["target_repo"])
             codex_code, codex_out, codex_err = run_codex(config.codex_exec_command, prompt, repo_path, branch)
 
-            commands = packet.get("validation_commands") or []
-            if isinstance(commands, str):
-                commands = json.loads(commands)
+            commands = parse_validation_commands(packet.get("validation_commands"))
             validation_results = run_validation_commands(commands, cwd=repo_path)
             validations_ok = all(item["passed"] for item in validation_results)
 
