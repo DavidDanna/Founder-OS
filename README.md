@@ -42,6 +42,7 @@ This repo now includes a **minimum working execution worker** that pulls queued 
    ```bash
    export SUPABASE_DB_URL='postgresql://...'
    export REPO_ROOT='/workspace'
+   export COMMAND_TIMEOUT_SECONDS='1800'
    # Optional override if your Codex CLI syntax differs
    export CODEX_EXEC_COMMAND='codex run --prompt-file {prompt_file} --repo {repo_path} --branch {branch}'
    ```
@@ -88,3 +89,13 @@ RUN_ONCE=true python worker/execution_worker.py
 ```
 
 The second command requires `SUPABASE_DB_URL` and a reachable database.
+
+### Quick smoke test (recommended)
+1. Seed a packet with `worker/smoke_test.sql` (replace placeholder IDs/paths first).
+2. Run worker once:
+   ```bash
+   RUN_ONCE=true python worker/execution_worker.py
+   ```
+3. Re-run the status queries from `worker/smoke_test.sql` and confirm:
+   - `build_packets.status` moved from `queued` to `completed` or `failed`
+   - one `execution_runs` row exists for that packet

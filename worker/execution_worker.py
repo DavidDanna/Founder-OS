@@ -35,6 +35,7 @@ class WorkerConfig:
     poll_seconds: int = 10
     codex_exec_command: str = "codex run --prompt-file {prompt_file} --repo {repo_path} --branch {branch}"
     repo_root: str = "/workspace"
+    command_timeout_seconds: int = 1800
 
 
 class PacketValidationError(ValueError):
@@ -85,18 +86,32 @@ def build_codex_prompt(packet: dict[str, Any], project: dict[str, Any], task: di
     )
 
 
-def run_command(command: str, cwd: str) -> tuple[int, str, str]:
-    process = subprocess.run(
-        command,
-        cwd=cwd,
-        shell=True,
-        text=True,
-        capture_output=True,
-    )
-    return process.returncode, process.stdout, process.stderr
+def run_command(command: str, cwd: str, timeout_seconds: int) -> tuple[int, str, str]:
+    try:
+        process = subprocess.run(
+            command,
+            cwd=cwd,
+            shell=True,
+            text=True,
+            capture_output=True,
+            timeout=timeout_seconds,
+        )
+        return process.returncode, process.stdout, process.stderr
+    except subprocess.TimeoutExpired as exc:
+        stdout = exc.stdout if isinstance(exc.stdout, str) else ""
+        stderr = exc.stderr if isinstance(exc.stderr, str) else ""
+        timeout_msg = f"Command timed out after {timeout_seconds}s"
+        stderr = f"{stderr}\n{timeout_msg}".strip()
+        return 124, stdout, stderr
 
 
-def run_codex(codex_template: str, prompt: str, repo_path: str, branch: str) -> tuple[int, str, str]:
+def run_codex(
+    codex_template: str,
+    prompt: str,
+    repo_path: str,
+    branch: str,
+    timeout_seconds: int,
+) -> tuple[int, str, str]:
     with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as f:
         f.write(prompt)
         prompt_file = f.name
@@ -107,7 +122,7 @@ def run_codex(codex_template: str, prompt: str, repo_path: str, branch: str) -> 
             repo_path=shlex.quote(repo_path),
             branch=shlex.quote(branch),
         )
-        return run_command(command, cwd=repo_path)
+        return run_command(command, cwd=repo_path, timeout_seconds=timeout_seconds)
     finally:
         os.unlink(prompt_file)
 
@@ -295,10 +310,10 @@ def finalize_failure(
         )
 
 
-def run_validation_commands(commands: list[str], cwd: str) -> list[dict[str, Any]]:
+def run_validation_commands(commands: list[str], cwd: str, timeout_seconds: int) -> list[dict[str, Any]]:
     results: list[dict[str, Any]] = []
     for cmd in commands:
-        code, out, err = run_command(cmd, cwd)
+        code, out, err = run_command(cmd, cwd, timeout_seconds=timeout_seconds)
         results.append(
             {
                 "command": cmd,
@@ -333,10 +348,20 @@ def process_one_packet(config: WorkerConfig) -> bool:
             conn.commit()
 
             repo_path = resolve_repo_path(config.repo_root, packet["target_repo"])
-            codex_code, codex_out, codex_err = run_codex(config.codex_exec_command, prompt, repo_path, branch)
+            codex_code, codex_out, codex_err = run_codex(
+                config.codex_exec_command,
+                prompt,
+                repo_path,
+                branch,
+                timeout_seconds=config.command_timeout_seconds,
+            )
 
             commands = parse_validation_commands(packet.get("validation_commands"))
-            validation_results = run_validation_commands(commands, cwd=repo_path)
+            validation_results = run_validation_commands(
+                commands,
+                cwd=repo_path,
+                timeout_seconds=config.command_timeout_seconds,
+            )
             validations_ok = all(item["passed"] for item in validation_results)
 
             if codex_code == 0 and validations_ok:
@@ -387,6 +412,7 @@ def main() -> None:
             "codex run --prompt-file {prompt_file} --repo {repo_path} --branch {branch}",
         ),
         repo_root=os.environ.get("REPO_ROOT", "/workspace"),
+        command_timeout_seconds=int(os.environ.get("COMMAND_TIMEOUT_SECONDS", "1800")),
     )
 
     run_once = os.environ.get("RUN_ONCE", "false").lower() == "true"
