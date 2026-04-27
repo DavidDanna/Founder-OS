@@ -415,6 +415,17 @@ def process_one_packet(config: WorkerConfig) -> bool:
                         validation_results=validation_results,
                     )
                     update_task_status(conn, packet.get("task_id"), "Blocked")
+                finalize_failure(
+                    conn,
+                    packet["id"],
+                    run_id,
+                    err=reason,
+                    codex_out=codex_out,
+                    codex_err=codex_err,
+                    codex_code=codex_code,
+                    validation_results=validation_results,
+                )
+                update_task_status(conn, packet.get("task_id"), "Blocked")
 
             conn.commit()
             return True
@@ -426,6 +437,8 @@ def process_one_packet(config: WorkerConfig) -> bool:
                 else:
                     finalize_failure(conn, packet["id"], run_id, err=f"Unhandled worker error: {exc}")
                     update_task_status(conn, packet.get("task_id"), "Blocked")
+                finalize_failure(conn, packet["id"], run_id, err=f"Unhandled worker error: {exc}")
+                update_task_status(conn, packet.get("task_id"), "Blocked")
                 conn.commit()
             else:
                 with conn.cursor() as cur:
