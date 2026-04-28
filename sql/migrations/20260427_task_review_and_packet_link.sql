@@ -7,6 +7,9 @@ alter table if exists tasks
   add column if not exists approved boolean default false;
 
 alter table if exists tasks
+  add column if not exists execution_status text;
+
+alter table if exists tasks
   add column if not exists reviewed_at timestamptz;
 
 alter table if exists tasks

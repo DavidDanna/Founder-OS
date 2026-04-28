@@ -103,6 +103,7 @@ Database constraints enforce:
   - Compatible approval models:
     - `tasks.approved = true` (legacy/current)
     - `tasks.review_status = approved` (new migration model)
+    - `tasks.execution_status in ('Queued','Approved')` (legacy queue model)
   - approved task + `build_packet_id is null` → coordinator creates `build_packets` row
   - `tasks.build_packet_id` and `tasks.packet_generated_at` are populated
   - `tasks.status = Queued`

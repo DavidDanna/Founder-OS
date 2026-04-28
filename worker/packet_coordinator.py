@@ -76,6 +76,19 @@ def build_packet_body(task: dict[str, Any]) -> str:
     )
 
 
+def build_task_filters(columns: set[str]) -> tuple[str, str]:
+    approval_filter = "coalesce(t.review_status, 'pending') = 'approved'"
+    if "approved" in columns:
+        approval_filter = "coalesce(t.approved, false) = true"
+    elif "execution_status" in columns:
+        approval_filter = "coalesce(t.execution_status, '') in ('Queued', 'Approved')"
+
+    packet_link_filter = "true"
+    if "build_packet_id" in columns:
+        packet_link_filter = "t.build_packet_id is null"
+    return approval_filter, packet_link_filter
+
+
 def fetch_approved_tasks(conn: psycopg.Connection[Any], batch_size: int) -> list[dict[str, Any]]:
     with conn.cursor() as cur:
         cur.execute(
@@ -84,18 +97,12 @@ def fetch_approved_tasks(conn: psycopg.Connection[Any], batch_size: int) -> list
               from information_schema.columns
              where table_schema = 'public'
                and table_name = 'tasks'
-               and column_name in ('approved', 'review_status', 'build_packet_id')
+               and column_name in ('approved', 'review_status', 'execution_status', 'build_packet_id')
             """
         )
         columns = {row[0] for row in cur.fetchall()}
 
-    approval_filter = "coalesce(t.review_status, 'pending') = 'approved'"
-    if "approved" in columns:
-        approval_filter = "coalesce(t.approved, false) = true"
-
-    packet_link_filter = "true"
-    if "build_packet_id" in columns:
-        packet_link_filter = "t.build_packet_id is null"
+    approval_filter, packet_link_filter = build_task_filters(columns)
 
     with conn.cursor(row_factory=dict_row) as cur:
         cur.execute(
@@ -155,7 +162,7 @@ def queue_task_packet(conn: psycopg.Connection[Any], task: dict[str, Any], confi
               from information_schema.columns
              where table_schema = 'public'
                and table_name = 'tasks'
-               and column_name in ('build_packet_id', 'packet_generated_at', 'status')
+               and column_name in ('build_packet_id', 'packet_generated_at', 'status', 'execution_status')
             """
         )
         columns = {row[0] for row in cur.fetchall()}
@@ -170,6 +177,8 @@ def queue_task_packet(conn: psycopg.Connection[Any], task: dict[str, Any], confi
             params.append(utc_now())
         if "status" in columns:
             set_parts.append("status = 'Queued'")
+        if "execution_status" in columns:
+            set_parts.append("execution_status = 'Queued'")
 
         if set_parts:
             params.append(task["id"])
