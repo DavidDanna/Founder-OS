@@ -12,6 +12,8 @@ import psycopg
 
 
 def check_db(url: str) -> tuple[bool, str]:
+    if "[YOUR-PASSWORD]" in url or "<password>" in url.lower():
+        return False, "database URL still contains a password placeholder"
     try:
         with psycopg.connect(url) as conn:
             with conn.cursor() as cur:

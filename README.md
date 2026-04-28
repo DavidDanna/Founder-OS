@@ -69,6 +69,11 @@ Run preflight checks (DB reachability, repo paths, codex/git binaries):
 make preflight
 ```
 
+Apply all SQL migrations in order:
+```bash
+make migrate
+```
+
 Process one packet and exit:
 ```bash
 RUN_ONCE=true python worker/execution_worker.py
@@ -174,6 +179,8 @@ The second command requires `SUPABASE_DB_URL` and a reachable database.
 - `Network is unreachable` when connecting to Supabase:
   - this often means your runtime cannot reach IPv6-only DB endpoints.
   - use Supabase pooler/connection settings that provide IPv4 connectivity for server-side workers.
+- `database URL still contains a password placeholder`:
+  - replace `[YOUR-PASSWORD]` / `<password>` with a real credential before running preflight.
 - Repo path not found:
   - verify `REPO_ROOT` points to a real path in the runtime where the worker executes.
   - if using multiple repos, set `REPO_MAP_JSON` with absolute reachable paths.

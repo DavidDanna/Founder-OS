@@ -1,7 +1,10 @@
-.PHONY: preflight queue-approved-tasks worker-once worker-loop test-worker
+.PHONY: preflight migrate queue-approved-tasks worker-once worker-loop test-worker
 
 preflight:
 	python worker/live_gate_preflight.py
+
+migrate:
+	python worker/apply_migrations.py
 
 queue-approved-tasks:
 	python worker/packet_coordinator.py

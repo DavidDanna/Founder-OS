@@ -19,9 +19,16 @@ If you see `Network is unreachable` to the `db.<ref>.supabase.co` host, your run
 export SUPABASE_DB_URL='postgresql://<user>:<password>@<pooler-host>:6543/postgres?sslmode=require'
 ```
 
+> Do not leave placeholders like `[YOUR-PASSWORD]` in the URL.
+
 ### Validate connection
 ```bash
 make preflight
+```
+
+### Apply migrations once DB is reachable
+```bash
+make migrate
 ```
 
 ## 2) Fix repo path accessibility
