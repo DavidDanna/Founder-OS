@@ -177,3 +177,5 @@ The second command requires `SUPABASE_DB_URL` and a reachable database.
 - Repo path not found:
   - verify `REPO_ROOT` points to a real path in the runtime where the worker executes.
   - if using multiple repos, set `REPO_MAP_JSON` with absolute reachable paths.
+
+For a full live unblock checklist, use: `docs/live-gate-fix-plan.md`.
